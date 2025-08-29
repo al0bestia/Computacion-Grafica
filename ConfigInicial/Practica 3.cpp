@@ -52,7 +52,7 @@ int main() {
 
     Shader ourShader("Shader/core.vs", "Shader/core.frag");
 
-    // === CUBO BASE (caras con colores distintos, como en tu código) ===
+    // === CUBO BASE (caras con colores distintos) ===
     float vertices[] = {
         //   pos xyz              color rgb
         // Frente (+Z) - rojo
