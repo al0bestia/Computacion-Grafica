@@ -1,0 +1,242 @@
+/*
+======================================================
+Alcalá Briseño Martha Alondra
+Práctica 5 - Computación Gráfica
+12/09/25
+319300602
+======================================================
+*/
+
+#include <iostream>
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include "Shader.h"
+
+void Inputs(GLFWwindow* window);
+
+const GLint WIDTH = 1200, HEIGHT = 800;
+
+// ==== Cámara ====
+float movX = 0.0f, movY = 0.0f, movZ = -5.0f, rot = 0.0f;
+
+// === Brazo ===
+float hombro = 0.0f, codo = 0.0f, muneca = 0.0f;
+
+// 5 DEDOS CON 2 falanges cada uno
+float fA_A = 0.0f, fA_B = 0.0f; // arriba izq
+float fB_A = 0.0f, fB_B = 0.0f; // arriba centro
+float fC_A = 0.0f, fC_B = 0.0f; // arriba der
+float fD_A = 0.0f, fD_B = 0.0f; // abajo izq
+float fE_A = 0.0f, fE_B = 0.0f; // abajo der
+
+static inline glm::vec3 lighten(const glm::vec3& c, float t = 0.35f) {
+    return glm::mix(c, glm::vec3(1.0f), glm::clamp(t, 0.0f, 1.0f));
+}
+
+int main() {
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
+
+    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Practica 5 AA", nullptr, nullptr);
+    int screenWidth, screenHeight; glfwGetFramebufferSize(window, &screenWidth, &screenHeight);
+    if (!window) { std::cout << "Failed to create GLFW window\n"; glfwTerminate(); return EXIT_FAILURE; }
+    glfwMakeContextCurrent(window);
+    glewExperimental = GL_TRUE; if (glewInit() != GLEW_OK) { std::cout << "Failed to initialise GLEW\n"; return EXIT_FAILURE; }
+
+    glViewport(0, 0, screenWidth, screenHeight);
+    glEnable(GL_DEPTH_TEST); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    Shader ourShader("Shader/core.vs", "Shader/core.frag");
+
+    // Vértices 
+    float vertices[] = {
+        -0.5f,-0.5f, 0.5f,  0.5f,-0.5f, 0.5f,  0.5f, 0.5f, 0.5f,
+         0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f,-0.5f, 0.5f,
+        -0.5f,-0.5f,-0.5f,  0.5f,-0.5f,-0.5f,  0.5f, 0.5f,-0.5f,
+         0.5f, 0.5f,-0.5f, -0.5f, 0.5f,-0.5f, -0.5f,-0.5f,-0.5f,
+         0.5f,-0.5f, 0.5f,  0.5f,-0.5f,-0.5f,  0.5f, 0.5f,-0.5f,
+         0.5f, 0.5f,-0.5f,  0.5f, 0.5f, 0.5f,  0.5f,-0.5f, 0.5f,
+        -0.5f, 0.5f, 0.5f, -0.5f, 0.5f,-0.5f, -0.5f,-0.5f,-0.5f,
+        -0.5f,-0.5f,-0.5f, -0.5f,-0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
+        -0.5f,-0.5f,-0.5f,  0.5f,-0.5f,-0.5f,  0.5f,-0.5f, 0.5f,
+         0.5f,-0.5f, 0.5f, -0.5f,-0.5f, 0.5f, -0.5f,-0.5f,-0.5f,
+        -0.5f, 0.5f,-0.5f,  0.5f, 0.5f,-0.5f,  0.5f, 0.5f, 0.5f,
+         0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f,-0.5f
+    };
+
+    GLuint VBO, VAO; glGenVertexArrays(1, &VAO); glGenBuffers(1, &VBO);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (GLvoid*)0);
+    glEnableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0); glBindVertexArray(0);
+
+    glm::mat4 projection = glm::perspective(glm::radians(45.0f),
+        (GLfloat)screenWidth / (GLfloat)screenHeight, 0.1f, 100.0f);
+
+    while (!glfwWindowShouldClose(window)) {
+        Inputs(window); glfwPollEvents();
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        ourShader.Use();
+        glm::mat4 model(1.0f), view(1.0f), modelTemp(1.0f), palmBase(1.0f);
+
+        view = glm::translate(view, glm::vec3(movX, movY, movZ));
+        view = glm::rotate(view, glm::radians(rot), glm::vec3(0.0f, 1.0f, 0.0f));
+
+        GLint uModel = glGetUniformLocation(ourShader.Program, "model");
+        GLint uView = glGetUniformLocation(ourShader.Program, "view");
+        GLint uProj = glGetUniformLocation(ourShader.Program, "projection");
+        GLint uColor = ourShader.uniformColor;
+
+        glUniformMatrix4fv(uProj, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(uView, 1, GL_FALSE, glm::value_ptr(view));
+        glBindVertexArray(VAO);
+
+        // ===== BRAZO =====
+        model = glm::rotate(model, glm::radians(hombro), glm::vec3(0.0f, 0.0f, 1.0f));
+        modelTemp = model = glm::translate(model, glm::vec3(1.5f, 0.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(3.0f, 1.0f, 1.0f));
+        glUniform3fv(uColor, 1, glm::value_ptr(glm::vec3(0.8f, 0.8f, 0.8f)));
+        glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+
+        // ===== ANTEBRAZO =====
+        model = glm::translate(modelTemp, glm::vec3(1.5f, 0.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(codo), glm::vec3(0.0f, 1.0f, 0.0f));
+        modelTemp = model = glm::translate(model, glm::vec3(1.0f, 0.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(2.0f, 1.0f, 1.0f));
+        glUniform3fv(uColor, 1, glm::value_ptr(glm::vec3(0.5f, 0.5f, 0.5f)));
+        glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+
+        // ===== PALMA =====
+        model = glm::translate(modelTemp, glm::vec3(1.0f, 0.0f, 0.0f));
+        model = glm::rotate(model, glm::radians(muneca), glm::vec3(1.0f, 0.0f, 0.0f));
+        palmBase = model = glm::translate(model, glm::vec3(0.25f, 0.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(0.5f, 1.0f, 1.0f));
+        glUniform3fv(uColor, 1, glm::value_ptr(glm::vec3(0.3f, 0.3f, 0.3f)));
+        glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+
+        // === DEDOS ===
+        auto drawWithTemps = [&](glm::vec3 baseOffset, float angA, float angB, glm::vec3 baseColor) {
+            glm::mat4 modelP = glm::translate(palmBase, baseOffset);
+            modelP = glm::rotate(modelP, glm::radians(angA), glm::vec3(1.0f, 0.0f, 1.0f));
+            glm::mat4 tempP = modelP = glm::translate(modelP, glm::vec3(0.5f, 0.0f, 0.0f));
+            modelP = glm::scale(modelP, glm::vec3(1.0f, 0.3f, 0.25f));
+            glUniform3fv(uColor, 1, glm::value_ptr(baseColor));
+            glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(modelP));
+            glDrawArrays(GL_TRIANGLES, 0, 36);
+
+            glm::mat4 modelD = glm::translate(tempP, glm::vec3(0.5f, 0.0f, 0.0f));
+            modelD = glm::rotate(modelD, glm::radians(angB), glm::vec3(0.0f, 0.0f, 1.0f));
+            modelD = glm::translate(modelD, glm::vec3(0.5f, 0.0f, 0.0f));
+            modelD = glm::scale(modelD, glm::vec3(1.0f, 0.3f, 0.25f));
+            glUniform3fv(uColor, 1, glm::value_ptr(lighten(baseColor)));
+            glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(modelD));
+            glDrawArrays(GL_TRIANGLES, 0, 36);
+            };
+
+        // Distribución de los dedos          3 arriba, 2 abajo
+        drawWithTemps(glm::vec3(0.25f, 0.35f, +0.40f), fA_A, fA_B, glm::vec3(0.0f, 0.8f, 1.0f));
+        drawWithTemps(glm::vec3(0.25f, 0.35f, 0.00f), fB_A, fB_B, glm::vec3(1.0f, 0.6f, 0.0f));
+        drawWithTemps(glm::vec3(0.25f, 0.35f, -0.40f), fC_A, fC_B, glm::vec3(0.2f, 1.0f, 0.4f));
+        drawWithTemps(glm::vec3(0.25f, -0.35f, +0.40f), fD_A, fD_B, glm::vec3(0.4f, 0.4f, 1.0f));
+        drawWithTemps(glm::vec3(0.25f, -0.35f, -0.40f), fE_A, fE_B, glm::vec3(1.0f, 0.2f, 0.6f));
+
+        glBindVertexArray(0);
+        glfwSwapBuffers(window);
+    }
+
+    glDeleteVertexArrays(1, &VAO);
+    glDeleteBuffers(1, &VBO);
+    glfwTerminate();
+    return EXIT_SUCCESS;
+}
+
+// ===== FUNCIONES DEL TECLADO =====
+void Inputs(GLFWwindow* window) {
+
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) movX += 0.01f; 
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) movX -= 0.01f;
+    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)   movY += 0.01f;
+    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) movY -= 0.01f; 
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) movZ -= 0.01f; 
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) movZ += 0.01f; 
+    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) rot += 0.02f; 
+    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) rot -= 0.02f; 
+
+    // brazo
+
+    // Rotación del hombro
+    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) hombro += 0.02f; 
+    if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS) hombro -= 0.02f; 
+
+    // Rotación del codo
+    if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS) codo += 0.02f;   
+    if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS) codo -= 0.02f;   
+
+    // Rotación de la muñeca
+    if (glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS) muneca += 0.02f; 
+    if (glfwGetKey(window, GLFW_KEY_Y) == GLFW_PRESS) muneca -= 0.02f; 
+
+
+    // Dedo A
+    if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS) fA_A += 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_U) == GLFW_PRESS) fA_A -= 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS) fA_B += 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS) fA_B -= 0.03f;
+    // Dedo B
+    if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) fB_A += 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS) fB_A -= 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_COMMA) == GLFW_PRESS) fB_B += 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_PERIOD) == GLFW_PRESS) fB_B -= 0.03f;
+    // Dedo C
+    if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS) fC_A += 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS) fC_A -= 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_SEMICOLON) == GLFW_PRESS) fC_B += 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_APOSTROPHE) == GLFW_PRESS) fC_B -= 0.03f;
+    // Dedo D
+    if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS) fD_A += 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_0) == GLFW_PRESS) fD_A -= 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_BRACKET) == GLFW_PRESS) fD_B += 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_RIGHT_BRACKET) == GLFW_PRESS) fD_B -= 0.03f;
+    // Dedo E
+    if (glfwGetKey(window, GLFW_KEY_MINUS) == GLFW_PRESS) fE_A += 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_EQUAL) == GLFW_PRESS) fE_A -= 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_BACKSLASH) == GLFW_PRESS) fE_B += 0.03f;
+    if (glfwGetKey(window, GLFW_KEY_SLASH) == GLFW_PRESS) fE_B -= 0.03f;
+
+    // MOVIMIENTO TIPO GARRA: mover todos los dedos al mismo tiemp
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+        // Cerrar todos los dedos 
+        fA_A += 0.03f; fA_B += 0.03f;
+        fB_A += 0.03f; fB_B += 0.03f;
+        fC_A += 0.03f; fC_B += 0.03f;
+        fD_A += 0.03f; fD_B += 0.03f;
+        fE_A += 0.03f; fE_B += 0.03f;
+    }
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+        // Abrir todos los dedos
+        fA_A -= 0.03f; fA_B -= 0.03f;
+        fB_A -= 0.03f; fB_B -= 0.03f;
+        fC_A -= 0.03f; fC_B -= 0.03f;
+        fD_A -= 0.03f; fD_B -= 0.03f;
+        fE_A -= 0.03f; fE_B -= 0.03f;
+    }
+
+
+}
