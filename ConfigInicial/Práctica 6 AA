@@ -1,0 +1,295 @@
+/*
+======================================================
+Alcalá Briseño Martha Alondra
+Practica 6 - Computación Gráfica
+25/09/25
+319300602
+======================================================
+*/
+
+// Std. Includes
+#include <string>
+#include <iostream>   // std::cout
+
+// GLEW
+#include <GL/glew.h>
+
+// GLFW
+#include <GLFW/glfw3.h>
+
+// GL includes
+#include "Shader.h"
+#include "Camera.h"
+#include "Model.h"
+
+// GLM Mathematics
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+// Other Libs
+#include "SOIL2/SOIL2.h"
+#include "stb_image.h"
+
+// Properties
+const GLuint WIDTH = 800, HEIGHT = 600;
+int SCREEN_WIDTH, SCREEN_HEIGHT;
+
+// Function prototypes
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mode);
+void MouseCallback(GLFWwindow* window, double xPos, double yPos);
+void DoMovement();
+
+// Camera
+Camera camera(glm::vec3(0.0f, 1.0f, 6.0f));
+bool keys[1024];
+GLfloat lastX = 400, lastY = 300;
+bool firstMouse = true;
+
+GLfloat deltaTime = 0.0f;
+GLfloat lastFrame = 0.0f;
+
+int main()
+{
+    // Init GLFW
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
+
+    // Window
+    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Practica 6 AA", nullptr, nullptr);
+    if (!window)
+    {
+        std::cout << "Failed to create GLFW window\n";
+        glfwTerminate();
+        return EXIT_FAILURE;
+    }
+    glfwMakeContextCurrent(window);
+    glfwGetFramebufferSize(window, &SCREEN_WIDTH, &SCREEN_HEIGHT);
+
+    // Callbacks
+    glfwSetKeyCallback(window, KeyCallback);
+    glfwSetCursorPosCallback(window, MouseCallback);
+    // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+    // GLEW
+    glewExperimental = GL_TRUE;
+    if (GLEW_OK != glewInit())
+    {
+        std::cout << "Failed to initialize GLEW\n";
+        return EXIT_FAILURE;
+    }
+
+    // GL State
+    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    glEnable(GL_DEPTH_TEST);
+
+    // Shaders
+    Shader shader("Shader/modelLoading.vs", "Shader/modelLoading.frag");
+
+    // Uniforms cache
+    const GLint uProj = glGetUniformLocation(shader.Program, "projection");
+    const GLint uView = glGetUniformLocation(shader.Program, "view");
+    const GLint uModel = glGetUniformLocation(shader.Program, "model");
+    const GLint uUseColor = glGetUniformLocation(shader.Program, "useColor");
+    const GLint uOverrideOn = glGetUniformLocation(shader.Program, "useOverrideTexture");
+
+    // MODELOS
+    Model dog((char*)"Models/RedDog.obj");            //RED DOG
+    Model furniture((char*)"Models/Furniture.obj");   //MUEBLE DE MADERA
+    Model pendule((char*)"Models/Pendule.obj");       //RELOJ
+    Model sofa((char*)"Models/Sofa.obj");             //SOFA
+    Model art((char*)"Models/Art.obj");               //CUADRO DE ARTE
+    Model plant((char*)"Models/Plant.obj");           //PLANTA
+
+
+    glm::mat4 projection = glm::perspective(camera.GetZoom(),
+        (float)SCREEN_WIDTH / (float)SCREEN_HEIGHT,
+        0.1f, 100.0f);
+
+    // ===== CONSTANTES  ==== // 
+
+    // SOFÁ (base de todas las demás posiciones)
+    const glm::vec3 SOFA_POS(-0.5f, 0.0f, -4.3f);  // centrado 
+    const float     SOFA_SCALE = 0.57f;            // tamaño 
+
+    // PISO BLANCO
+    const float SOFA_PLANE_Y_IN_OBJ = -0.018842f;
+    const float SOFA_PLANE_Y_WORLD = SOFA_POS.y + SOFA_PLANE_Y_IN_OBJ * SOFA_SCALE;
+
+
+    // MUEBLE DE MADERA
+    const float     FURN_SCALE = 0.60f;                // tamaño 
+    const float     GAP_X = 0.55f;                     // espacio entre sofá y mueble
+    const float     WIDTH_HINT = 2.1f * SOFA_SCALE;    // ancho aprox sofá 
+    const float     FURN_SHIFT = 1.4f * FURN_SCALE;    // ancho aprox mueble 
+    const glm::vec3 FURN_POS = SOFA_POS + glm::vec3(WIDTH_HINT + GAP_X + FURN_SHIFT + 2.0f, 0.0f, 0.0f);
+
+    //  RED DOG 
+    const float DOG_SCALE = FURN_SCALE * 5.0f; 
+    const glm::vec3 DOG_POS = FURN_POS + glm::vec3(2.5f, 1.0f, 0.0f);
+
+    //  RELOJ
+    const float     PENDULE_SCALE = FURN_SCALE * 0.040f;
+    const float     PENDULE_OFFY = 4.40f * FURN_SCALE;  // altura en pared
+    const float     PENDULE_OFFZ = 0.0f;                
+
+    // CUADRO DE ARTE
+    const float ART_SCALE = 0.10f * SOFA_SCALE;  // tamaño 
+    const float ART_OFFX = 0.0f;                 // centrado con el sofa
+    const float ART_OFFZ = -0.05f;               // como si estuviera pegado en la pared
+    const glm::vec3 ART_POS = SOFA_POS + glm::vec3(ART_OFFX, PENDULE_OFFY, ART_OFFZ);
+
+    //  PLANTA 
+    const float     PLANT_SCALE = 0.075f;   
+    const glm::vec3 PLANT_POS = SOFA_POS + glm::vec3(-4.8f, 0.0f, 0.15f); 
+
+
+
+
+    // ===================== Loop =====================
+    while (!glfwWindowShouldClose(window))
+    {
+        // Time
+        GLfloat currentFrame = (GLfloat)glfwGetTime();
+        deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+
+        // Input
+        glfwPollEvents();
+        DoMovement();
+
+        // Clear
+        glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Use shader
+        shader.Use();
+
+        // Matrices
+        glm::mat4 view = camera.GetViewMatrix();
+        if (uProj != -1) glUniformMatrix4fv(uProj, 1, GL_FALSE, glm::value_ptr(projection));
+        if (uView != -1) glUniformMatrix4fv(uView, 1, GL_FALSE, glm::value_ptr(view));
+
+        glm::mat4 model(1.0f);
+
+        // ------------------ SOFÁ 
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, SOFA_POS);
+        model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0, 1, 0)); 
+        model = glm::scale(model, glm::vec3(SOFA_SCALE));
+
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        if (uUseColor != -1) glUniform1i(uUseColor, 0);
+        if (uOverrideOn != -1) glUniform1i(uOverrideOn, 0);
+
+        sofa.Draw(shader);
+
+        // ------------------ RED DOG 
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, DOG_POS);
+        model = glm::scale(model, glm::vec3(DOG_SCALE));
+
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        if (uUseColor != -1) glUniform1i(uUseColor, 0);
+        if (uOverrideOn != -1) glUniform1i(uOverrideOn, 0);
+
+        dog.Draw(shader);
+
+
+        // ------------------ MUEBLE DE MADERA
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, FURN_POS);
+        model = glm::scale(model, glm::vec3(FURN_SCALE));
+
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        if (uUseColor != -1) glUniform1i(uUseColor, 0);
+        if (uOverrideOn != -1) glUniform1i(uOverrideOn, 0);
+
+        furniture.Draw(shader);
+
+        // ------------------ RELOJ 
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, FURN_POS + glm::vec3(0.0f, PENDULE_OFFY, PENDULE_OFFZ));
+        model = glm::scale(model, glm::vec3(PENDULE_SCALE));
+
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        if (uUseColor != -1) glUniform1i(uUseColor, 0);
+        if (uOverrideOn != -1) glUniform1i(uOverrideOn, 0);
+
+        pendule.Draw(shader);
+
+        // ------------------ CUADRO DE ARTE 
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, ART_POS);
+        model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0, 1, 0));
+        model = glm::scale(model, glm::vec3(ART_SCALE));
+
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        if (uUseColor != -1) glUniform1i(uUseColor, 0);
+        if (uOverrideOn != -1) glUniform1i(uOverrideOn, 0);
+
+        art.Draw(shader);
+
+        // ------------------ PLANTA
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, PLANT_POS);
+        model = glm::scale(model, glm::vec3(PLANT_SCALE));
+
+        if (uModel != -1)      glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        if (uUseColor != -1)   glUniform1i(uUseColor, 0);      
+        if (uOverrideOn != -1) glUniform1i(uOverrideOn, 0);
+
+        plant.Draw(shader);
+
+
+        // Swap
+        glfwSwapBuffers(window);
+    }
+
+    glfwTerminate();
+    return 0;
+}
+
+// Movement
+void DoMovement()
+{
+    if (keys[GLFW_KEY_W] || keys[GLFW_KEY_UP])    camera.ProcessKeyboard(FORWARD, deltaTime);
+    if (keys[GLFW_KEY_S] || keys[GLFW_KEY_DOWN])  camera.ProcessKeyboard(BACKWARD, deltaTime);
+    if (keys[GLFW_KEY_A] || keys[GLFW_KEY_LEFT])  camera.ProcessKeyboard(LEFT, deltaTime);
+    if (keys[GLFW_KEY_D] || keys[GLFW_KEY_RIGHT]) camera.ProcessKeyboard(RIGHT, deltaTime);
+}
+
+// Key callback
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mode)
+{
+    if (GLFW_KEY_ESCAPE == key && GLFW_PRESS == action)
+        glfwSetWindowShouldClose(window, GL_TRUE);
+
+    if (key >= 0 && key < 1024)
+    {
+        if (action == GLFW_PRESS)        keys[key] = true;
+        else if (action == GLFW_RELEASE) keys[key] = false;
+    }
+}
+
+// Mouse callback
+void MouseCallback(GLFWwindow* window, double xPos, double yPos)
+{
+    if (firstMouse)
+    {
+        lastX = (GLfloat)xPos;
+        lastY = (GLfloat)yPos;
+        firstMouse = false;
+    }
+
+    GLfloat xOffset = (GLfloat)xPos - lastX;
+    GLfloat yOffset = lastY - (GLfloat)yPos;  // y invertida
+    lastX = (GLfloat)xPos;
+    lastY = (GLfloat)yPos;
+
+    camera.ProcessMouseMovement(xOffset, yOffset);
+}
