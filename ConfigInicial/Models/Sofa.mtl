@@ -1,0 +1,63 @@
+newmtl Material
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 2
+map_Kd Texture/S1.jpg
+
+newmtl Material.001
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 2
+map_Kd Texture/S2.jpg
+
+newmtl Material.002
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 2
+map_Kd Texture/S3.jpg
+
+newmtl Material.003
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 2
+map_Kd Texture/S4.jpg
+
+newmtl Material.006
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 2
+map_Kd Texture/S1.jpg
+
+newmtl Material.007
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 2
+map_Kd Texture/S2.jpg
+
+newmtl Material.013
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 2
+map_Kd Texture/S3.jpg
+
+newmtl Material.014
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+d 1
+illum 2
+map_Kd Texture/S4.jpg
