@@ -1,3 +1,12 @@
+/*
+======================================================
+Alcalá Briseño Martha Alondra
+Práctica 7 - Computación Gráfica
+10/10/25
+319300602
+======================================================
+*/
+
 #include <iostream>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
