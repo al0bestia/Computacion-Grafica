@@ -20,7 +20,7 @@ Práctica 7 - Computación Gráfica
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-// === Prototipos ===
+
 void KeyCallback(GLFWwindow*, int, int, int, int);
 void MouseCallback(GLFWwindow*, double, double);
 void DoMovement();
