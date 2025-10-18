@@ -1,0 +1,340 @@
+/*
+======================================================
+Alcalá Briseño Martha Alondra
+Practica 8 - Computación Gráfica
+17/10/25
+319300602
+======================================================
+*/
+
+#include <string>
+#include <iostream>
+#include <algorithm>
+
+// GLEW
+#include <GL/glew.h>
+
+// GLFW
+#include <GLFW/glfw3.h>
+
+// GL includes
+#include "Shader.h"
+#include "Camera.h"
+#include "Model.h"
+
+// GLM
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+// Other Libs
+#include "SOIL2/SOIL2.h"
+#include "stb_image.h"
+
+// Window (un poco + amplia)
+const GLuint WIDTH = 1200, HEIGHT = 700;
+int SCREEN_WIDTH, SCREEN_HEIGHT;
+
+// Protos
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mode);
+void MouseCallback(GLFWwindow* window, double xPos, double yPos);
+void DoMovement();
+
+// Helpers
+static inline float lerp(float a, float b, float t) { return a + (b - a) * t; }
+static inline glm::vec3 lerp3(const glm::vec3& a, const glm::vec3& b, float t) {
+    return glm::vec3(lerp(a.x, b.x, t), lerp(a.y, b.y, t), lerp(a.z, b.z, t));
+}
+static inline float clamp01(float x) { return std::max(0.0f, std::min(1.0f, x)); }
+
+// Camera
+Camera camera(glm::vec3(0.0f, 1.0f, 6.0f));
+bool keys[1024];
+GLfloat lastX = 400, lastY = 300;
+bool firstMouse = true;
+
+// Timing
+GLfloat deltaTime = 0.0f;
+GLfloat lastFrame = 0.0f;
+
+// LUZ EN ARCO D HORIZONTE A HORIZONTE
+bool  moveSun = true;     // pausar/continuar con tecla M
+bool  isNight = false;    // modo noche: dia-noche, noche-dia con tecla N
+float sunT = 0.0f;     
+const float SUN_SPEED = 0.40f;    
+const float SUN_X_LEFT = -10.0f;
+const float SUN_X_RIGHT = +10.0f;
+const float SUN_Y_BASE = 0.5f; 
+const float SUN_Y_ARC = 6.0f; 
+const float SUN_Z = -3.0f;
+
+// TRANSICION DE LUZ DIA-NOCHE
+float nightAlpha = 0.0f;     
+const float BLEND_SPEED = 0.7f;    
+
+int main()
+{
+    // GLFW
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
+
+    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Practica 8 AA", nullptr, nullptr);
+    if (!window) {
+        std::cout << "Failed to create GLFW window\n";
+        glfwTerminate();
+        return EXIT_FAILURE;
+    }
+    glfwMakeContextCurrent(window);
+    glfwGetFramebufferSize(window, &SCREEN_WIDTH, &SCREEN_HEIGHT);
+
+    glfwSetKeyCallback(window, KeyCallback);
+    glfwSetCursorPosCallback(window, MouseCallback);
+    //glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED); -- dejar de ver el cursor 
+
+    glewExperimental = GL_TRUE;
+    if (GLEW_OK != glewInit()) {
+        std::cout << "Failed to initialize GLEW\n";
+        return EXIT_FAILURE;
+    }
+
+    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    glEnable(GL_DEPTH_TEST);
+
+    // shaders de iluminacion
+    Shader shader("Shader/lighting.vs", "Shader/lighting.frag");
+
+    const GLint uProj = glGetUniformLocation(shader.Program, "projection");
+    const GLint uView = glGetUniformLocation(shader.Program, "view");
+    const GLint uModel = glGetUniformLocation(shader.Program, "model");
+
+    // MODELOS PREVIAMENTE USADOS EN LA PRACTICA 6
+    Model dog((char*)"Models/RedDog.obj");      // RED DOG
+    Model furniture((char*)"Models/Furniture.obj");   // MUEBLE
+    Model pendule((char*)"Models/Pendule.obj");     // RELOJ
+    Model sofa((char*)"Models/Sofa.obj");        // SOFA
+    Model art((char*)"Models/Art.obj");         // CUADRO
+    Model plant((char*)"Models/Plant.obj");       // PLANTA
+
+    glm::mat4 projection = glm::perspective(
+        glm::radians(camera.GetZoom()), 
+        (float)SCREEN_WIDTH / (float)SCREEN_HEIGHT,
+        0.1f, 100.0f
+    );
+
+    const glm::vec3 SOFA_POS(-0.5f, 0.0f, -4.3f);
+    const float     SOFA_SCALE = 0.57f;
+
+    const float SOFA_PLANE_Y_IN_OBJ = -0.018842f;
+    const float SOFA_PLANE_Y_WORLD = SOFA_POS.y + SOFA_PLANE_Y_IN_OBJ * SOFA_SCALE;
+    (void)SOFA_PLANE_Y_WORLD;
+
+    const float     FURN_SCALE = 0.60f;
+    const float     GAP_X = 0.55f;
+    const float     WIDTH_HINT = 2.1f * SOFA_SCALE;
+    const float     FURN_SHIFT = 1.4f * FURN_SCALE;
+    const glm::vec3 FURN_POS = SOFA_POS + glm::vec3(WIDTH_HINT + GAP_X + FURN_SHIFT + 2.0f, 0.0f, 0.0f);
+
+    const float     DOG_SCALE = FURN_SCALE * 5.0f;
+    const glm::vec3 DOG_POS = FURN_POS + glm::vec3(2.5f, 1.0f, 0.0f);
+
+    const float     PENDULE_SCALE = FURN_SCALE * 0.040f;
+    const float     PENDULE_OFFY = 4.40f * FURN_SCALE;
+    const float     PENDULE_OFFZ = 0.0f;
+
+    const float     ART_SCALE = 0.10f * SOFA_SCALE;
+    const float     ART_OFFX = 0.0f;
+    const float     ART_OFFZ = -0.05f;
+    const glm::vec3 ART_POS = SOFA_POS + glm::vec3(ART_OFFX, PENDULE_OFFY, ART_OFFZ);
+
+    const float     PLANT_SCALE = 0.075f;
+    const glm::vec3 PLANT_POS = SOFA_POS + glm::vec3(-4.8f, 0.0f, 0.15f);
+
+    // DIA 
+    const glm::vec3 L_AMB_DAY(0.35f, 0.33f, 0.30f);
+    const glm::vec3 L_DIF_DAY(1.20f, 1.10f, 1.00f);
+    const glm::vec3 L_SPE_DAY(1.10f, 1.05f, 1.00f);
+    const float     EXP_DAY = 1.25f;
+    const glm::vec3 TINT_DAY = glm::vec3(1.05f, 1.02f, 0.98f);
+    const glm::vec3 SKY_DAY = glm::vec3(0.72f, 0.78f, 0.95f);
+
+    // NOCHE
+    const glm::vec3 L_AMB_NIGHT(0.16f, 0.18f, 0.28f);
+    const glm::vec3 L_DIF_NIGHT(0.35f, 0.45f, 0.60f);
+    const glm::vec3 L_SPE_NIGHT(0.45f, 0.50f, 0.70f);
+    const float     EXP_NIGHT = 1.00f;
+    const glm::vec3 TINT_NIGHT = glm::vec3(0.90f, 1.00f, 1.10f);
+    const glm::vec3 SKY_NIGHT = glm::vec3(0.12f, 0.16f, 0.26f);
+
+    // LOOP
+    while (!glfwWindowShouldClose(window))
+    {
+        GLfloat currentFrame = (GLfloat)glfwGetTime();
+        deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+
+        glfwPollEvents();
+        DoMovement();
+
+        // EL SOL AVANZA EN ARCO
+        if (moveSun && !isNight) {
+            sunT += SUN_SPEED * deltaTime; 
+            if (sunT > 1.0f) sunT = 1.0f;  
+        }
+
+        // POSICION DEL SOL X LINEAL, Y SINUSOIDAL
+        float t = clamp01(sunT);
+        float x = lerp(SUN_X_LEFT, SUN_X_RIGHT, t);
+        float y = SUN_Y_BASE + SUN_Y_ARC * sin(3.1415926f * t);
+        glm::vec3 sunPos(x, y, SUN_Z);
+
+        // MEZCLA DIA-NOCHE
+        float target = isNight ? 1.0f : 0.0f;
+        
+        nightAlpha += (target - nightAlpha) * std::min(1.0f, deltaTime * BLEND_SPEED);
+        nightAlpha = clamp01(nightAlpha);
+
+        // MEZCLA DIA Y NOCHE
+        //INTERPOLACION DE PARAMETROS ENTRE DIA Y NOCHE
+        glm::vec3 L_amb = lerp3(L_AMB_DAY, L_AMB_NIGHT, nightAlpha);
+        glm::vec3 L_dif = lerp3(L_DIF_DAY, L_DIF_NIGHT, nightAlpha);
+        glm::vec3 L_spe = lerp3(L_SPE_DAY, L_SPE_NIGHT, nightAlpha);
+        float     exposure = lerp(EXP_DAY, EXP_NIGHT, nightAlpha);
+        glm::vec3 tint = lerp3(TINT_DAY, TINT_NIGHT, nightAlpha);
+        glm::vec3 sky = lerp3(SKY_DAY, SKY_NIGHT, nightAlpha);
+
+        glClearColor(sky.r, sky.g, sky.b, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        shader.Use();
+
+        glm::mat4 view = camera.GetViewMatrix();
+        if (uProj != -1) glUniformMatrix4fv(uProj, 1, GL_FALSE, glm::value_ptr(projection));
+        if (uView != -1) glUniformMatrix4fv(uView, 1, GL_FALSE, glm::value_ptr(view));
+
+        glUniform3f(glGetUniformLocation(shader.Program, "light.position"), sunPos.x, sunPos.y, sunPos.z);
+        glUniform3f(glGetUniformLocation(shader.Program, "light.ambient"), L_amb.r, L_amb.g, L_amb.b);
+        glUniform3f(glGetUniformLocation(shader.Program, "light.diffuse"), L_dif.r, L_dif.g, L_dif.b);
+        glUniform3f(glGetUniformLocation(shader.Program, "light.specular"), L_spe.r, L_spe.g, L_spe.b);
+
+        glUniform3f(glGetUniformLocation(shader.Program, "viewPos"),
+            camera.GetPosition().x, camera.GetPosition().y, camera.GetPosition().z);
+
+        glUniform3f(glGetUniformLocation(shader.Program, "material.ambient"), 0.5f, 0.5f, 0.5f);
+        glUniform3f(glGetUniformLocation(shader.Program, "material.diffuse"), 1.0f, 1.0f, 1.0f);
+        glUniform3f(glGetUniformLocation(shader.Program, "material.specular"), 0.5f, 0.5f, 0.5f);
+        glUniform1f(glGetUniformLocation(shader.Program, "material.shininess"), 32.0f);
+
+        glUniform1f(glGetUniformLocation(shader.Program, "sceneExposure"), exposure);
+        glUniform3f(glGetUniformLocation(shader.Program, "sceneTint"), tint.r, tint.g, tint.b);
+
+        // ACTIVAR LAS TEXTURAS
+        glUniform1i(glGetUniformLocation(shader.Program, "useTexture"), GL_TRUE);
+
+        // ======= CARGA DE LOS 6 MODELOS =======
+        glm::mat4 model(1.0f);
+
+        // SOFA
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, SOFA_POS);
+        model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0, 1, 0));
+        model = glm::scale(model, glm::vec3(SOFA_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        sofa.Draw(shader);
+
+        // RED DOG
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, DOG_POS);
+        model = glm::scale(model, glm::vec3(DOG_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        dog.Draw(shader);
+
+        // MUEBLE
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, FURN_POS);
+        model = glm::scale(model, glm::vec3(FURN_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        furniture.Draw(shader);
+
+        // RELOJ
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, FURN_POS + glm::vec3(0.0f, PENDULE_OFFY, PENDULE_OFFZ));
+        model = glm::scale(model, glm::vec3(PENDULE_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        pendule.Draw(shader);
+
+        // CUADRO
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, ART_POS);
+        model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0, 1, 0));
+        model = glm::scale(model, glm::vec3(ART_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        art.Draw(shader);
+
+        // PLANTA
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, PLANT_POS);
+        model = glm::scale(model, glm::vec3(PLANT_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        plant.Draw(shader);
+
+        glfwSwapBuffers(window);
+    }
+
+    glfwTerminate();
+    return 0;
+}
+
+// MOVIMIENTOS USANDO TECLAS --> (WASD)
+void DoMovement()
+{
+    if (keys[GLFW_KEY_W] || keys[GLFW_KEY_UP])    camera.ProcessKeyboard(FORWARD, deltaTime);
+    if (keys[GLFW_KEY_S] || keys[GLFW_KEY_DOWN])  camera.ProcessKeyboard(BACKWARD, deltaTime);
+    if (keys[GLFW_KEY_A] || keys[GLFW_KEY_LEFT])  camera.ProcessKeyboard(LEFT, deltaTime);
+    if (keys[GLFW_KEY_D] || keys[GLFW_KEY_RIGHT]) camera.ProcessKeyboard(RIGHT, deltaTime);
+}
+
+// TECLAS --> (ESC, N, SPACE, M)
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mode)
+{
+    if (GLFW_KEY_ESCAPE == key && GLFW_PRESS == action)
+        glfwSetWindowShouldClose(window, GL_TRUE);
+
+    if (key >= 0 && key < 1024) {
+        if (action == GLFW_PRESS)        keys[key] = true;
+        else if (action == GLFW_RELEASE) keys[key] = false;
+    }
+
+    if (key == GLFW_KEY_N && action == GLFW_PRESS) {
+        isNight = !isNight;
+    }
+
+    // REINICIAR CICLO AL INICIO (SOL VUELVE A IZQ)
+    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
+        sunT = 0.0f;
+        isNight = false;
+    }
+
+    // PAUSAR/REANUDAR EL MOV DEL SOL
+    if (key == GLFW_KEY_M && action == GLFW_PRESS) {
+        moveSun = !moveSun;
+    }
+}
+
+// mouse
+void MouseCallback(GLFWwindow* window, double xPos, double yPos)
+{
+    if (firstMouse) {
+        lastX = (GLfloat)xPos;
+        lastY = (GLfloat)yPos;
+        firstMouse = false;
+    }
+    GLfloat xOffset = (GLfloat)xPos - lastX;
+    GLfloat yOffset = lastY - (GLfloat)yPos;
+    lastX = (GLfloat)xPos;
+    lastY = (GLfloat)yPos;
+    camera.ProcessMouseMovement(xOffset, yOffset);
+}
