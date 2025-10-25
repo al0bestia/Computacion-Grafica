@@ -1,0 +1,348 @@
+/*
+======================================================
+Alcalá Briseño Martha Alondra
+Practica 9 - Computación Gráfica                                                                                          
+24/10/25
+319300602
+======================================================       
+*/ 
+
+#include <string>
+#include <iostream>
+
+// GLEW / GLFW
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
+// GL includes
+#include "Shader.h"
+#include "Camera.h"
+#include "Model.h"
+
+// GLM
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+// Other Libs
+#include "SOIL2/SOIL2.h"
+#include "stb_image.h"
+
+// Window props
+const GLuint WIDTH = 1200, HEIGHT = 700;
+int SCREEN_WIDTH, SCREEN_HEIGHT;
+
+// Protos
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mode);
+void MouseCallback(GLFWwindow* window, double xPos, double yPos);
+void DoMovement();
+
+// Camera
+Camera camera(glm::vec3(0.0f, 1.0f, 6.0f));
+bool keys[1024];
+GLfloat lastX = 400, lastY = 300;
+bool firstMouse = true;
+
+// Time
+GLfloat deltaTime = 0.0f;
+GLfloat lastFrame = 0.0f;
+
+int main()
+{
+    glfwInit();
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
+
+    GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Practica 9 AA", nullptr, nullptr);
+    if (!window) { std::cout << "Failed to create GLFW window\n"; glfwTerminate(); return EXIT_FAILURE; }
+
+    glfwMakeContextCurrent(window);
+    glfwGetFramebufferSize(window, &SCREEN_WIDTH, &SCREEN_HEIGHT);
+    glfwSetKeyCallback(window, KeyCallback);
+    glfwSetCursorPosCallback(window, MouseCallback);
+    // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+    glewExperimental = GL_TRUE;
+    if (GLEW_OK != glewInit()) { std::cout << "Failed to initialize GLEW\n"; return EXIT_FAILURE; }
+
+    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+
+    Shader shader("Shader/modelLoading.vs", "Shader/modelLoading.frag");
+
+    // Uniform caches
+    const GLint uProj = glGetUniformLocation(shader.Program, "projection");
+    const GLint uView = glGetUniformLocation(shader.Program, "view");
+    const GLint uModel = glGetUniformLocation(shader.Program, "model");
+    const GLint uUseColor = glGetUniformLocation(shader.Program, "useColor");
+    const GLint uOverrideOn = glGetUniformLocation(shader.Program, "useOverrideTexture");
+
+    // MODELOS
+    Model dog((char*)"Models/RedDog.obj");
+    Model furniture((char*)"Models/Furniture.obj");
+    Model pendule((char*)"Models/Pendule.obj");
+    Model sofa((char*)"Models/Sofa.obj");
+    Model art((char*)"Models/Art.obj");
+    Model plant((char*)"Models/Plant.obj");
+    Model lamp((char*)"Models/lamp.obj");     // LAMPARA DE NOCHE
+    Model fire((char*)"Models/fire.obj");     // FOGATA
+    Model lampC((char*)"Models/lampC.obj");   // LAMPARA ALTA
+
+    glm::mat4 projection = glm::perspective(camera.GetZoom(),
+        (float)SCREEN_WIDTH / (float)SCREEN_HEIGHT, 0.1f, 100.0f);
+
+    // ========== CONSTANTES DE ESCENA ==========
+    // Sofá base
+    const glm::vec3 SOFA_POS(-0.5f, 0.0f, -4.3f);
+    const float     SOFA_SCALE = 0.57f;
+
+    const float SOFA_PLANE_Y_IN_OBJ = -0.018842f;
+    const float SOFA_PLANE_Y_WORLD = SOFA_POS.y + SOFA_PLANE_Y_IN_OBJ * SOFA_SCALE;
+
+    // Mueble de madera
+    const float     FURN_SCALE = 0.60f;
+    const float     GAP_X = 0.55f;
+    const float     WIDTH_HINT = 2.1f * SOFA_SCALE;
+    const float     FURN_SHIFT = 1.4f * FURN_SCALE;
+    const glm::vec3 FURN_POS = SOFA_POS + glm::vec3(WIDTH_HINT + GAP_X + FURN_SHIFT + 2.0f, 0.0f, 0.0f);
+
+    // Perro rojo
+    const float     DOG_SCALE = FURN_SCALE * 5.0f;
+    const glm::vec3 DOG_POS = FURN_POS + glm::vec3(2.5f, 1.0f, 0.0f);
+
+    // Reloj
+    const float PENDULE_SCALE = FURN_SCALE * 0.040f;
+    const float PENDULE_OFFY = 4.40f * FURN_SCALE;
+    const float PENDULE_OFFZ = -0.55f;
+
+    // Arte
+    const float     ART_SCALE = 0.10f * SOFA_SCALE;
+    const glm::vec3 ART_POS = SOFA_POS + glm::vec3(0.0f, PENDULE_OFFY, -0.05f);
+
+    // Planta
+    const float     PLANT_SCALE = 0.075f;
+    const glm::vec3 PLANT_POS = SOFA_POS + glm::vec3(-4.8f, 0.0f, 0.15f);
+
+    // Lámpara alta (lampC)
+    const float     LAMPC_SCALE = 2.15f;
+    const glm::vec3 LAMPC_POS = PLANT_POS + glm::vec3(-0.3f, 0.0f, -0.7f);
+
+    // Lámpara de noche (lamp)
+    const float     LAMP_SCALE = 0.18f;
+    const glm::vec3 LAMP_POS = FURN_POS + glm::vec3(0.0f, 1.90f, 0.0f);
+
+    // Fogata (fire)
+    const float     FIRE_SCALE = 0.38f;
+    const glm::vec3 FIRE_POS = glm::vec3(SOFA_POS.x, SOFA_PLANE_Y_WORLD + 0.01f, SOFA_POS.z + 2.30f);
+
+    // loop
+    while (!glfwWindowShouldClose(window))
+    {
+        // Tiempo
+        GLfloat currentFrame = (GLfloat)glfwGetTime();
+        deltaTime = currentFrame - lastFrame;
+        lastFrame = currentFrame;
+
+        // Input
+        glfwPollEvents();
+        DoMovement();
+
+        // Clear
+        glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Shader ON
+        shader.Use();
+
+        // Matrices
+        glm::mat4 view = camera.GetViewMatrix();
+        if (uProj != -1) glUniformMatrix4fv(uProj, 1, GL_FALSE, glm::value_ptr(projection));
+        if (uView != -1) glUniformMatrix4fv(uView, 1, GL_FALSE, glm::value_ptr(view));
+
+        // ======= LUCES =======
+        glUniform3fv(glGetUniformLocation(shader.Program, "viewPos"), 1, glm::value_ptr(camera.GetPosition()));
+        glUniform1f(glGetUniformLocation(shader.Program, "materialShininess"), 32.0f);
+
+        // LAMPARA ALTA
+        glUniform3f(glGetUniformLocation(shader.Program, "dirLight.direction"), -0.2f, -1.0f, -0.3f);
+        glUniform3f(glGetUniformLocation(shader.Program, "dirLight.ambient"), 0.12f, 0.12f, 0.12f);
+        glUniform3f(glGetUniformLocation(shader.Program, "dirLight.diffuse"), 0.10f, 0.10f, 0.10f);
+        glUniform3f(glGetUniformLocation(shader.Program, "dirLight.specular"), 0.00f, 0.00f, 0.00f);
+
+        {
+            glm::vec3 spotPos = LAMPC_POS + glm::vec3(0.0f, 3.0f, 0.0f);
+            glm::vec3 spotDir = glm::vec3(0.0f, -1.0f, 0.0f);
+
+            glUniform3fv(glGetUniformLocation(shader.Program, "spotLight.position"), 1, glm::value_ptr(spotPos));
+            glUniform3fv(glGetUniformLocation(shader.Program, "spotLight.direction"), 1, glm::value_ptr(spotDir));
+            glUniform1f(glGetUniformLocation(shader.Program, "spotLight.cutOff"), glm::cos(glm::radians(22.0f)));
+            glUniform1f(glGetUniformLocation(shader.Program, "spotLight.outerCutOff"), glm::cos(glm::radians(30.0f)));
+            glUniform3f(glGetUniformLocation(shader.Program, "spotLight.ambient"), 0.25f, 0.20f, 0.15f);
+            glUniform3f(glGetUniformLocation(shader.Program, "spotLight.diffuse"), 1.00f, 0.92f, 0.78f);
+            glUniform3f(glGetUniformLocation(shader.Program, "spotLight.specular"), 1.00f, 0.92f, 0.78f);
+            glUniform1f(glGetUniformLocation(shader.Program, "spotLight.constant"), 1.0f);
+            glUniform1f(glGetUniformLocation(shader.Program, "spotLight.linear"), 0.07f);
+            glUniform1f(glGetUniformLocation(shader.Program, "spotLight.quadratic"), 0.017f);
+        }
+
+        // FOGATA
+        {
+            float t = (float)glfwGetTime();
+            float flick = 0.80f + 0.20f * sin(6.3f * t) * sin(2.7f * t + 1.3f); 
+            glm::vec3 firePos = FIRE_POS + glm::vec3(0.0f, 0.35f, 0.0f);
+
+            glUniform3fv(glGetUniformLocation(shader.Program, "fireLight.position"), 1, glm::value_ptr(firePos));
+            glUniform3f(glGetUniformLocation(shader.Program, "fireLight.ambient"), 0.30f * flick, 0.15f * flick, 0.06f * flick);
+            glUniform3f(glGetUniformLocation(shader.Program, "fireLight.diffuse"), 1.00f * flick, 0.60f * flick, 0.28f * flick);
+            glUniform3f(glGetUniformLocation(shader.Program, "fireLight.specular"), 1.00f, 0.70f, 0.35f);
+            glUniform1f(glGetUniformLocation(shader.Program, "fireLight.constant"), 1.0f);
+            glUniform1f(glGetUniformLocation(shader.Program, "fireLight.linear"), 0.07f);
+            glUniform1f(glGetUniformLocation(shader.Program, "fireLight.quadratic"), 0.017f);
+        }
+        // LAMPARA DE NOCHE
+        {
+            glm::vec3 lampPos = LAMP_POS + glm::vec3(0.0f, 0.25f, 0.0f);
+            glUniform3fv(glGetUniformLocation(shader.Program, "lampLight.position"), 1, glm::value_ptr(lampPos));
+            glUniform3f(glGetUniformLocation(shader.Program, "lampLight.ambient"), 0.20f, 0.16f, 0.10f);
+            glUniform3f(glGetUniformLocation(shader.Program, "lampLight.diffuse"), 0.95f, 0.85f, 0.65f);
+            glUniform3f(glGetUniformLocation(shader.Program, "lampLight.specular"), 0.90f, 0.80f, 0.70f);
+            glUniform1f(glGetUniformLocation(shader.Program, "lampLight.constant"), 1.0f);
+            glUniform1f(glGetUniformLocation(shader.Program, "lampLight.linear"), 0.07f);
+            glUniform1f(glGetUniformLocation(shader.Program, "lampLight.quadratic"), 0.017f);
+        }
+
+        // dibujo de escena
+        glm::mat4 model(1.0f);
+
+        // SOFÁ
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, SOFA_POS);
+        model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(0, 1, 0));
+        model = glm::scale(model, glm::vec3(SOFA_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        if (uUseColor != -1)   glUniform1i(uUseColor, 0);
+        if (uOverrideOn != -1) glUniform1i(uOverrideOn, 0);
+        sofa.Draw(shader);
+
+        // RED DOG
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, DOG_POS);
+        model = glm::scale(model, glm::vec3(DOG_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        dog.Draw(shader);
+
+        // MUEBLE
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, FURN_POS);
+        model = glm::scale(model, glm::vec3(FURN_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        furniture.Draw(shader);
+
+        // LÁMPARA DE NOCHE 
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, LAMP_POS);
+        model = glm::scale(model, glm::vec3(LAMP_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        lamp.Draw(shader);
+
+        // RELOJ
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, FURN_POS + glm::vec3(0.0f, PENDULE_OFFY, PENDULE_OFFZ));
+        model = glm::scale(model, glm::vec3(PENDULE_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        pendule.Draw(shader);
+
+        // CUADRO DE ARTE
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, ART_POS);
+        model = glm::rotate(model, glm::radians(90.0f), glm::vec3(0, 1, 0));
+        model = glm::scale(model, glm::vec3(ART_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        art.Draw(shader);
+
+        // PLANTA
+        model = glm::mat4(1.0f);
+        model = glm::translate(model, PLANT_POS);
+        model = glm::scale(model, glm::vec3(PLANT_SCALE));
+        if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+        plant.Draw(shader);
+
+        // LÁMPARA ALTA (lampC) 
+        {
+            model = glm::mat4(1.0f);
+            model = glm::translate(model, LAMPC_POS);
+            model = glm::scale(model, glm::vec3(LAMPC_SCALE));
+            if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+
+            GLint uUseKey = glGetUniformLocation(shader.Program, "useColorKey");
+            GLint uKeyCol = glGetUniformLocation(shader.Program, "keyColor");
+            GLint uKeyThr = glGetUniformLocation(shader.Program, "keyThreshold");
+            glUniform1i(uUseKey, GL_TRUE);
+            glUniform3f(uKeyCol, 0.0f, 0.0f, 0.0f);
+            glUniform1f(uKeyThr, 0.18f);
+
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            lampC.Draw(shader);
+            glDisable(GL_BLEND);
+
+            glUniform1i(uUseKey, GL_FALSE);
+        }
+
+        // FOGATA (fire)
+        {
+            model = glm::mat4(1.0f);
+            model = glm::translate(model, FIRE_POS);
+            model = glm::scale(model, glm::vec3(FIRE_SCALE));
+            if (uModel != -1) glUniformMatrix4fv(uModel, 1, GL_FALSE, glm::value_ptr(model));
+
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(GL_FALSE);   
+            glDisable(GL_CULL_FACE); 
+            fire.Draw(shader);
+            glEnable(GL_CULL_FACE);
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
+        }
+
+        // Swap
+        glfwSwapBuffers(window);
+    }
+
+    glfwTerminate();
+    return 0;
+}
+
+// controles 
+void DoMovement()
+{
+    if (keys[GLFW_KEY_W] || keys[GLFW_KEY_UP])    camera.ProcessKeyboard(FORWARD, deltaTime);
+    if (keys[GLFW_KEY_S] || keys[GLFW_KEY_DOWN])  camera.ProcessKeyboard(BACKWARD, deltaTime);
+    if (keys[GLFW_KEY_A] || keys[GLFW_KEY_LEFT])  camera.ProcessKeyboard(LEFT, deltaTime);
+    if (keys[GLFW_KEY_D] || keys[GLFW_KEY_RIGHT]) camera.ProcessKeyboard(RIGHT, deltaTime);
+}
+
+void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mode)
+{
+    if (GLFW_KEY_ESCAPE == key && GLFW_PRESS == action) glfwSetWindowShouldClose(window, GL_TRUE);
+    if (key >= 0 && key < 1024)
+    {
+        if (action == GLFW_PRESS)        keys[key] = true;
+        else if (action == GLFW_RELEASE) keys[key] = false;
+    }
+}
+
+void MouseCallback(GLFWwindow* window, double xPos, double yPos)
+{
+    if (firstMouse) { lastX = (GLfloat)xPos; lastY = (GLfloat)yPos; firstMouse = false; }
+    GLfloat xOffset = (GLfloat)xPos - lastX;
+    GLfloat yOffset = lastY - (GLfloat)yPos;
+    lastX = (GLfloat)xPos; lastY = (GLfloat)yPos;
+    camera.ProcessMouseMovement(xOffset, yOffset);
+}
